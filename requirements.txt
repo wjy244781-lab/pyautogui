@@ -1,0 +1,17 @@
+# 点云可视化工具依赖包
+# 安装方法: pip install -r requirements.txt
+
+# 3D点云可视化和处理库
+open3d>=0.18.0
+
+# 数值计算库
+numpy>=1.21.0
+
+# 打包工具（可选，仅在需要打包成可执行文件时安装）
+# pyinstaller>=5.0.0
+
+# 注意：
+# - tkinter 是 Python 标准库的一部分，通常随 Python 一起安装
+# - 在某些 Linux 系统上，可能需要单独安装: sudo apt-get install python3-tk
+# - 其他依赖（json, pathlib, typing, dataclasses, colorsys）均为 Python 标准库
+

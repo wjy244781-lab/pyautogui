@@ -1,0 +1,23 @@
+# 点云可视化工具 Conda 环境配置文件
+# 使用方法:
+#   1. 创建环境: conda env create -f environment.yml
+#   2. 激活环境: conda activate pyguitool
+#   3. 更新环境: conda env update -f environment.yml --prune
+#   4. 删除环境: conda env remove -n pyguitool
+
+name: pyguitool
+channels:
+  - conda-forge  # 优先使用conda-forge（包更全、更新）
+  - defaults
+dependencies:
+  - python>=3.8,<3.13  # Python版本要求
+  - pip  # pip包管理器
+  - tk  # Tkinter GUI库（用于控制面板，Linux系统必需）
+  
+  # 优先使用conda安装主要依赖（更稳定，依赖管理更好）
+  - numpy>=1.21.0
+  
+  # 通过pip安装的Python包（当conda版本不满足要求时）
+  - pip:
+    # 3D点云可视化和处理库
+    - open3d>=0.18.0
