@@ -33,6 +33,9 @@ class PointCloudGUI:
         
         # 匹配关系复选框存储
         self.match_checkboxes = {}  # {match_index: (var, match_data)}
+        # 未匹配项复选框存储
+        self.unmatched_frame_checkboxes = {}  # {(type, id): (var, item_data)}
+        self.unmatched_map_checkboxes = {}    # {(type, id): (var, item_data)}
     
     def create_control_panel(self):
         """创建控制面板"""
@@ -565,6 +568,34 @@ class PointCloudGUI:
         
         # 清空匹配关系复选框存储
         self.match_checkboxes.clear()
+        # 清空未匹配项复选框存储
+        if hasattr(self, 'unmatched_frame_checkboxes'):
+            self.unmatched_frame_checkboxes.clear()
+        if hasattr(self, 'unmatched_map_checkboxes'):
+            self.unmatched_map_checkboxes.clear()
+        
+        # 清除之前创建的过滤dense_cloud点云
+        if hasattr(self, 'dense_cloud_point_indices'):
+            delattr(self, 'dense_cloud_point_indices')
+        
+        # 清除之前帧的过滤dense_cloud点云，并恢复原始的transformed dense_cloud显示
+        if self.visualizer.vis is not None:
+            filtered_names = [
+                name for name in list(self.visualizer.geometries.keys()) + list(self.visualizer.hidden_geometries.keys())
+                if name.startswith('filtered_dense_cloud_')
+            ]
+            for name in filtered_names:
+                if name in self.visualizer.geometries:
+                    self.visualizer.remove_geometry(name)
+                elif name in self.visualizer.hidden_geometries:
+                    del self.visualizer.hidden_geometries[name]
+            
+            # 恢复原始的transformed dense_cloud显示（如果存在）
+            if self.available_frames and self.current_frame_index < len(self.available_frames):
+                current_frame_id = self.available_frames[self.current_frame_index]
+                transformed_dense_name = f"transformed_cloud_{current_frame_id}_T_opt_w_b_dense_cloud"
+                if transformed_dense_name in self.visualizer.hidden_geometries:
+                    self.visualizer.show_geometry(transformed_dense_name)
         
         # 直接读取debug.txt文件内容
         debug_path = Config.get_data_frame_path(frame_id) / "debug.txt"
@@ -807,25 +838,23 @@ class PointCloudGUI:
         """格式化显示plane_match_infos匹配信息，每个匹配关系可以选中/取消选中"""
         import json
         
-        # 创建滚动框架
-        match_canvas = tk.Canvas(parent)
-        match_scrollbar = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=match_canvas.yview)
-        match_scrollable_frame = ttk.Frame(match_canvas)
+        # 创建主容器，使用水平布局
+        main_container = ttk.Frame(parent)
+        main_container.pack(fill=tk.BOTH, expand=True)
+        main_container.columnconfigure(0, weight=1)
+        main_container.columnconfigure(1, weight=1)
+        main_container.columnconfigure(2, weight=1)
         
-        match_scrollable_frame.bind(
-            "<Configure>",
-            lambda e: match_canvas.configure(scrollregion=match_canvas.bbox("all"))
-        )
+        # 获取当前帧ID
+        if not self.available_frames or self.current_frame_index >= len(self.available_frames):
+            ttk.Label(parent, text="无法获取当前帧信息", font=("Arial", 10)).pack(pady=20)
+            return
         
-        match_canvas.create_window((0, 0), window=match_scrollable_frame, anchor="nw")
-        match_canvas.configure(yscrollcommand=match_scrollbar.set)
+        frame_id = self.available_frames[self.current_frame_index]
         
-        match_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        match_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        # 标题
-        title_label = ttk.Label(match_scrollable_frame, text="点云匹配关系", font=("Arial", 14, "bold"))
-        title_label.pack(pady=(0, 15))
+        # 加载当前帧和地图的数据
+        frame_data = self.visualizer.data_loader.load_frame_data(frame_id, Config.FRAME_TYPE_FRAME)
+        map_data = self.visualizer.data_loader.load_frame_data(frame_id, Config.FRAME_TYPE_MAP)
         
         # 提取plane_match_infos
         plane_match_infos = []
@@ -835,36 +864,18 @@ class PointCloudGUI:
             elif isinstance(match_info, dict) and 'plane_match_infos' in match_info:
                 plane_match_infos = match_info['plane_match_infos']
         
-        if not plane_match_infos:
-            ttk.Label(match_scrollable_frame, text="未找到plane_match_infos数据", 
-                     font=("Arial", 10)).pack(pady=20)
-            return
+        # 提取已匹配的ID集合
+        matched_frame_ids = set()  # {(type, id)}
+        matched_map_ids = set()    # {(type, id)}
         
-        # 统计信息
-        stats_frame = ttk.LabelFrame(match_scrollable_frame, text="统计信息", padding="10")
-        stats_frame.pack(fill=tk.X, pady=5)
-        
-        total_count = len(plane_match_infos)
-        ttk.Label(stats_frame, text=f"总匹配数: {total_count}", font=("Arial", 10, "bold")).pack(anchor=tk.W)
-        
-        # 匹配列表框架
-        list_frame = ttk.LabelFrame(match_scrollable_frame, text="匹配关系列表", padding="5")
-        list_frame.pack(fill=tk.BOTH, expand=True, pady=5)
-        
-        # 存储复选框变量，用于后续控制
-        self.match_checkboxes = {}  # {match_index: (var, match_data)}
-        
-        # 为每个匹配关系创建复选框
-        for idx, match in enumerate(plane_match_infos):
+        for match in plane_match_infos:
             # 提取匹配信息
             if hasattr(match, 'cur_id'):
                 cur_id_obj = match.cur_id
                 other_id_obj = match.other_id
-                axis = match.axis if hasattr(match, 'axis') else None
             elif isinstance(match, dict):
                 cur_id_obj = match.get('cur_id')
                 other_id_obj = match.get('other_id')
-                axis = match.get('axis')
             else:
                 continue
             
@@ -888,52 +899,582 @@ class PointCloudGUI:
                 other_type = other_id_obj.a
                 other_id = other_id_obj.b
             
-            if cur_type is None or cur_id is None or other_type is None or other_id is None:
-                continue
+            if cur_type is not None and cur_id is not None:
+                matched_frame_ids.add((cur_type, cur_id))
+            if other_type is not None and other_id is not None:
+                matched_map_ids.add((other_type, other_id))
+        
+        # 找出未匹配的frame项目
+        unmatched_frame_items = []
+        for ground in frame_data['grounds']:
+            ground_name = ground.get('name', '')
+            file_id = self.visualizer.data_loader._extract_file_id(ground_name)
+            if file_id is not None and isinstance(file_id, int):
+                if (2, file_id) not in matched_frame_ids:  # 2=ground
+                    unmatched_frame_items.append(('ground', file_id, ground_name))
+        
+        for plane in frame_data['planes']:
+            plane_name = plane.get('name', '')
+            file_id = self.visualizer.data_loader._extract_file_id(plane_name)
+            if file_id is not None and isinstance(file_id, int):
+                if (1, file_id) not in matched_frame_ids:  # 1=plane
+                    unmatched_frame_items.append(('plane', file_id, plane_name))
+        
+        # 找出未匹配的map项目
+        unmatched_map_items = []
+        for ground in map_data['grounds']:
+            ground_name = ground.get('name', '')
+            file_id = self.visualizer.data_loader._extract_file_id(ground_name)
+            if file_id is not None and isinstance(file_id, int):
+                if (2, file_id) not in matched_map_ids:  # 2=ground
+                    unmatched_map_items.append(('ground', file_id, ground_name))
+        
+        for plane in map_data['planes']:
+            plane_name = plane.get('name', '')
+            file_id = self.visualizer.data_loader._extract_file_id(plane_name)
+            if file_id is not None and isinstance(file_id, int):
+                if (1, file_id) not in matched_map_ids:  # 1=plane
+                    unmatched_map_items.append(('plane', file_id, plane_name))
+        
+        # 第一列：匹配关系列表
+        match_column = ttk.Frame(main_container)
+        match_column.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5)
+        match_column.columnconfigure(0, weight=1)
+        match_column.rowconfigure(0, weight=1)
+        
+        # 创建滚动框架
+        match_canvas = tk.Canvas(match_column)
+        match_scrollbar = ttk.Scrollbar(match_column, orient=tk.VERTICAL, command=match_canvas.yview)
+        match_scrollable_frame = ttk.Frame(match_canvas)
+        
+        match_scrollable_frame.bind(
+            "<Configure>",
+            lambda e: match_canvas.configure(scrollregion=match_canvas.bbox("all"))
+        )
+        
+        match_canvas.create_window((0, 0), window=match_scrollable_frame, anchor="nw")
+        match_canvas.configure(yscrollcommand=match_scrollbar.set)
+        
+        match_canvas.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        match_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
+        match_column.columnconfigure(0, weight=1)
+        match_column.rowconfigure(0, weight=1)
+        
+        # 标题
+        title_label = ttk.Label(match_scrollable_frame, text="匹配关系列表", font=("Arial", 12, "bold"))
+        title_label.pack(pady=(0, 10))
+        
+        if not plane_match_infos:
+            ttk.Label(match_scrollable_frame, text="未找到匹配数据", 
+                     font=("Arial", 10)).pack(pady=20)
+        else:
+            # 统计信息
+            stats_frame = ttk.LabelFrame(match_scrollable_frame, text="统计信息", padding="5")
+            stats_frame.pack(fill=tk.X, pady=5)
             
-            # 创建匹配项框架
-            match_item_frame = ttk.Frame(list_frame)
-            match_item_frame.pack(fill=tk.X, pady=2, padx=5)
+            total_count = len(plane_match_infos)
+            ttk.Label(stats_frame, text=f"总匹配数: {total_count}", font=("Arial", 9, "bold")).pack(anchor=tk.W)
+            
+            # 匹配列表框架
+            list_frame = ttk.LabelFrame(match_scrollable_frame, text="匹配项", padding="5")
+            list_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+            
+            # 存储复选框变量，用于后续控制
+            self.match_checkboxes = {}  # {match_index: (var, match_data)}
+            
+            # 为每个匹配关系创建复选框
+            for idx, match in enumerate(plane_match_infos):
+                # 提取匹配信息
+                if hasattr(match, 'cur_id'):
+                    cur_id_obj = match.cur_id
+                    other_id_obj = match.other_id
+                    axis = match.axis if hasattr(match, 'axis') else None
+                elif isinstance(match, dict):
+                    cur_id_obj = match.get('cur_id')
+                    other_id_obj = match.get('other_id')
+                    axis = match.get('axis')
+                else:
+                    continue
+                
+                # 提取cur_id和other_id的类型和id
+                cur_type = None
+                cur_id = None
+                other_type = None
+                other_id = None
+                
+                if isinstance(cur_id_obj, dict):
+                    cur_type = cur_id_obj.get('a')  # 1=plane, 2=ground
+                    cur_id = cur_id_obj.get('b')
+                elif hasattr(cur_id_obj, 'a'):
+                    cur_type = cur_id_obj.a
+                    cur_id = cur_id_obj.b
+                
+                if isinstance(other_id_obj, dict):
+                    other_type = other_id_obj.get('a')
+                    other_id = other_id_obj.get('b')
+                elif hasattr(other_id_obj, 'a'):
+                    other_type = other_id_obj.a
+                    other_id = other_id_obj.b
+                
+                if cur_type is None or cur_id is None or other_type is None or other_id is None:
+                    continue
+                
+                # 创建匹配项框架
+                match_item_frame = ttk.Frame(list_frame)
+                match_item_frame.pack(fill=tk.X, pady=2, padx=5)
+                
+                # 创建复选框变量（默认选中）
+                var = tk.BooleanVar(value=True)
+                self.match_checkboxes[idx] = (var, {
+                    'cur_type': cur_type,
+                    'cur_id': cur_id,
+                    'other_type': other_type,
+                    'other_id': other_id,
+                    'axis': axis
+                })
+                
+                # 类型名称
+                cur_type_name = "plane" if cur_type == 1 else "ground" if cur_type == 2 else "unknown"
+                other_type_name = "plane" if other_type == 1 else "ground" if other_type == 2 else "unknown"
+                
+                # 创建复选框
+                checkbox = ttk.Checkbutton(
+                    match_item_frame,
+                    text=f"轴{axis}: Frame {cur_type_name}_{cur_id} <-> Map {other_type_name}_{other_id}",
+                    variable=var,
+                    command=lambda idx=idx, var=var: self._on_match_checkbox_toggle(idx, var)
+                )
+                checkbox.pack(side=tk.LEFT, padx=5)
+            
+            # 全选/全不选按钮
+            button_frame = ttk.Frame(match_scrollable_frame)
+            button_frame.pack(fill=tk.X, pady=5)
+            
+            def select_all():
+                for idx, (var, _) in self.match_checkboxes.items():
+                    var.set(True)
+                    self._on_match_checkbox_toggle(idx, var)
+            
+            def deselect_all():
+                for idx, (var, _) in self.match_checkboxes.items():
+                    var.set(False)
+                    self._on_match_checkbox_toggle(idx, var)
+            
+            ttk.Button(button_frame, text="全选", command=select_all).pack(side=tk.LEFT, padx=5)
+            ttk.Button(button_frame, text="全不选", command=deselect_all).pack(side=tk.LEFT, padx=5)
+        
+        # 第二列：当前帧未匹配列表
+        unmatched_frame_column = ttk.Frame(main_container)
+        unmatched_frame_column.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5)
+        unmatched_frame_column.columnconfigure(0, weight=1)
+        unmatched_frame_column.rowconfigure(0, weight=1)
+        
+        # 创建滚动框架
+        frame_canvas = tk.Canvas(unmatched_frame_column)
+        frame_scrollbar = ttk.Scrollbar(unmatched_frame_column, orient=tk.VERTICAL, command=frame_canvas.yview)
+        frame_scrollable_frame = ttk.Frame(frame_canvas)
+        
+        frame_scrollable_frame.bind(
+            "<Configure>",
+            lambda e: frame_canvas.configure(scrollregion=frame_canvas.bbox("all"))
+        )
+        
+        frame_canvas.create_window((0, 0), window=frame_scrollable_frame, anchor="nw")
+        frame_canvas.configure(yscrollcommand=frame_scrollbar.set)
+        
+        frame_canvas.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        frame_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
+        unmatched_frame_column.columnconfigure(0, weight=1)
+        unmatched_frame_column.rowconfigure(0, weight=1)
+        
+        # 标题
+        frame_title_label = ttk.Label(frame_scrollable_frame, text="当前帧未匹配", font=("Arial", 12, "bold"))
+        frame_title_label.pack(pady=(0, 10))
+        
+        # 统计信息
+        frame_stats_frame = ttk.LabelFrame(frame_scrollable_frame, text="统计信息", padding="5")
+        frame_stats_frame.pack(fill=tk.X, pady=5)
+        
+        frame_total_count = len(unmatched_frame_items)
+        ttk.Label(frame_stats_frame, text=f"未匹配数: {frame_total_count}", font=("Arial", 9, "bold")).pack(anchor=tk.W)
+        
+        # 未匹配列表框架
+        frame_list_frame = ttk.LabelFrame(frame_scrollable_frame, text="未匹配项", padding="5")
+        frame_list_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        # 存储未匹配frame复选框变量
+        self.unmatched_frame_checkboxes = {}  # {(type, id): (var, item_data)}
+        
+        # 为每个未匹配项创建复选框
+        for item_type, item_id, item_name in unmatched_frame_items:
+            item_frame = ttk.Frame(frame_list_frame)
+            item_frame.pack(fill=tk.X, pady=2, padx=5)
             
             # 创建复选框变量（默认选中）
             var = tk.BooleanVar(value=True)
-            self.match_checkboxes[idx] = (var, {
-                'cur_type': cur_type,
-                'cur_id': cur_id,
-                'other_type': other_type,
-                'other_id': other_id,
-                'axis': axis
+            self.unmatched_frame_checkboxes[(item_type, item_id)] = (var, {
+                'type': item_type,
+                'id': item_id,
+                'name': item_name
             })
             
             # 类型名称
-            cur_type_name = "plane" if cur_type == 1 else "ground" if cur_type == 2 else "unknown"
-            other_type_name = "plane" if other_type == 1 else "ground" if other_type == 2 else "unknown"
+            type_name = "plane" if item_type == 'plane' else "ground"
             
             # 创建复选框
             checkbox = ttk.Checkbutton(
-                match_item_frame,
-                text=f"轴{axis}: Frame {cur_type_name}_{cur_id} <-> Map {other_type_name}_{other_id}",
+                item_frame,
+                text=f"Frame {type_name}_{item_id}",
                 variable=var,
-                command=lambda idx=idx, var=var: self._on_match_checkbox_toggle(idx, var)
+                command=lambda item_type=item_type, item_id=item_id, var=var: self._on_unmatched_frame_checkbox_toggle(item_type, item_id, var)
             )
             checkbox.pack(side=tk.LEFT, padx=5)
         
+        if not unmatched_frame_items:
+            ttk.Label(frame_list_frame, text="无未匹配项", font=("Arial", 9), foreground="gray").pack(pady=10)
+        
         # 全选/全不选按钮
-        button_frame = ttk.Frame(match_scrollable_frame)
-        button_frame.pack(fill=tk.X, pady=5)
+        frame_button_frame = ttk.Frame(frame_scrollable_frame)
+        frame_button_frame.pack(fill=tk.X, pady=5)
         
-        def select_all():
-            for idx, (var, _) in self.match_checkboxes.items():
+        def frame_select_all():
+            for (item_type, item_id), (var, _) in self.unmatched_frame_checkboxes.items():
                 var.set(True)
-                self._on_match_checkbox_toggle(idx, var)
+                self._on_unmatched_frame_checkbox_toggle(item_type, item_id, var)
         
-        def deselect_all():
-            for idx, (var, _) in self.match_checkboxes.items():
+        def frame_deselect_all():
+            for (item_type, item_id), (var, _) in self.unmatched_frame_checkboxes.items():
                 var.set(False)
-                self._on_match_checkbox_toggle(idx, var)
+                self._on_unmatched_frame_checkbox_toggle(item_type, item_id, var)
         
-        ttk.Button(button_frame, text="全选", command=select_all).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="全不选", command=deselect_all).pack(side=tk.LEFT, padx=5)
+        ttk.Button(frame_button_frame, text="全选", command=frame_select_all).pack(side=tk.LEFT, padx=5)
+        ttk.Button(frame_button_frame, text="全不选", command=frame_deselect_all).pack(side=tk.LEFT, padx=5)
+        
+        # 第三列：地图未匹配列表
+        unmatched_map_column = ttk.Frame(main_container)
+        unmatched_map_column.grid(row=0, column=2, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5)
+        unmatched_map_column.columnconfigure(0, weight=1)
+        unmatched_map_column.rowconfigure(0, weight=1)
+        
+        # 创建滚动框架
+        map_canvas = tk.Canvas(unmatched_map_column)
+        map_scrollbar = ttk.Scrollbar(unmatched_map_column, orient=tk.VERTICAL, command=map_canvas.yview)
+        map_scrollable_frame = ttk.Frame(map_canvas)
+        
+        map_scrollable_frame.bind(
+            "<Configure>",
+            lambda e: map_canvas.configure(scrollregion=map_canvas.bbox("all"))
+        )
+        
+        map_canvas.create_window((0, 0), window=map_scrollable_frame, anchor="nw")
+        map_canvas.configure(yscrollcommand=map_scrollbar.set)
+        
+        map_canvas.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        map_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
+        unmatched_map_column.columnconfigure(0, weight=1)
+        unmatched_map_column.rowconfigure(0, weight=1)
+        
+        # 标题
+        map_title_label = ttk.Label(map_scrollable_frame, text="地图未匹配", font=("Arial", 12, "bold"))
+        map_title_label.pack(pady=(0, 10))
+        
+        # 统计信息
+        map_stats_frame = ttk.LabelFrame(map_scrollable_frame, text="统计信息", padding="5")
+        map_stats_frame.pack(fill=tk.X, pady=5)
+        
+        map_total_count = len(unmatched_map_items)
+        ttk.Label(map_stats_frame, text=f"未匹配数: {map_total_count}", font=("Arial", 9, "bold")).pack(anchor=tk.W)
+        
+        # 未匹配列表框架
+        map_list_frame = ttk.LabelFrame(map_scrollable_frame, text="未匹配项", padding="5")
+        map_list_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        # 存储未匹配map复选框变量
+        self.unmatched_map_checkboxes = {}  # {(type, id): (var, item_data)}
+        
+        # 为每个未匹配项创建复选框
+        for item_type, item_id, item_name in unmatched_map_items:
+            item_frame = ttk.Frame(map_list_frame)
+            item_frame.pack(fill=tk.X, pady=2, padx=5)
+            
+            # 创建复选框变量（默认选中）
+            var = tk.BooleanVar(value=True)
+            self.unmatched_map_checkboxes[(item_type, item_id)] = (var, {
+                'type': item_type,
+                'id': item_id,
+                'name': item_name
+            })
+            
+            # 类型名称
+            type_name = "plane" if item_type == 'plane' else "ground"
+            
+            # 创建复选框
+            checkbox = ttk.Checkbutton(
+                item_frame,
+                text=f"Map {type_name}_{item_id}",
+                variable=var,
+                command=lambda item_type=item_type, item_id=item_id, var=var: self._on_unmatched_map_checkbox_toggle(item_type, item_id, var)
+            )
+            checkbox.pack(side=tk.LEFT, padx=5)
+        
+        if not unmatched_map_items:
+            ttk.Label(map_list_frame, text="无未匹配项", font=("Arial", 9), foreground="gray").pack(pady=10)
+        
+        # 全选/全不选按钮
+        map_button_frame = ttk.Frame(map_scrollable_frame)
+        map_button_frame.pack(fill=tk.X, pady=5)
+        
+        def map_select_all():
+            for (item_type, item_id), (var, _) in self.unmatched_map_checkboxes.items():
+                var.set(True)
+                self._on_unmatched_map_checkbox_toggle(item_type, item_id, var)
+        
+        def map_deselect_all():
+            for (item_type, item_id), (var, _) in self.unmatched_map_checkboxes.items():
+                var.set(False)
+                self._on_unmatched_map_checkbox_toggle(item_type, item_id, var)
+        
+        ttk.Button(map_button_frame, text="全选", command=map_select_all).pack(side=tk.LEFT, padx=5)
+        ttk.Button(map_button_frame, text="全不选", command=map_deselect_all).pack(side=tk.LEFT, padx=5)
+        
+        # 在match信息面板下方添加dense_cloud点控制复选框
+        self._add_dense_cloud_point_controls(parent, frame_id, match_info, plane_match_infos)
+    
+    def _add_dense_cloud_point_controls(self, parent, frame_id: int, match_info, plane_match_infos):
+        """在match信息面板下方添加dense_cloud点控制复选框"""
+        import open3d as o3d
+        import numpy as np
+        
+        # 创建dense_cloud点控制框架
+        dense_control_frame = ttk.LabelFrame(parent, text="当前帧稠密点控制", padding="10")
+        dense_control_frame.pack(fill=tk.X, pady=10, padx=5)
+        
+        # 检查是否有transformed dense_cloud
+        transformed_dense_name = f"transformed_cloud_{frame_id}_T_opt_w_b_dense_cloud"
+        transformed_dense_pcd = None
+        
+        if transformed_dense_name in self.visualizer.geometries:
+            transformed_dense_pcd = self.visualizer.geometries[transformed_dense_name]
+        elif transformed_dense_name in self.visualizer.hidden_geometries:
+            transformed_dense_pcd = self.visualizer.hidden_geometries[transformed_dense_name]['geometry']
+        
+        if transformed_dense_pcd is None or not isinstance(transformed_dense_pcd, o3d.geometry.PointCloud):
+            ttk.Label(dense_control_frame, text="当前帧没有transformed dense_cloud点云", 
+                     font=("Arial", 9), foreground="gray").pack(pady=5)
+            return
+        
+        num_total_points = len(transformed_dense_pcd.points)
+        
+        # 提取dense_pt_match_infos
+        dense_pt_match_mapping = {}  # {cur_id (frame): other_id (map)}
+        if match_info:
+            if hasattr(match_info, 'dense_pt_match_infos'):
+                for match in match_info.dense_pt_match_infos:
+                    if hasattr(match, 'cur_id') and hasattr(match, 'other_id'):
+                        cur_id = match.cur_id
+                        other_id = match.other_id
+                        if isinstance(cur_id, int) and isinstance(other_id, int) and other_id >= 0:
+                            dense_pt_match_mapping[cur_id] = other_id
+                    elif isinstance(match, dict) and 'cur_id' in match and 'other_id' in match:
+                        cur_id = match['cur_id']
+                        other_id = match['other_id']
+                        if isinstance(cur_id, int) and isinstance(other_id, int) and other_id >= 0:
+                            dense_pt_match_mapping[cur_id] = other_id
+            elif isinstance(match_info, dict) and 'dense_pt_match_infos' in match_info:
+                for match in match_info['dense_pt_match_infos']:
+                    if isinstance(match, dict) and 'cur_id' in match and 'other_id' in match:
+                        cur_id = match['cur_id']
+                        other_id = match['other_id']
+                        if isinstance(cur_id, int) and isinstance(other_id, int) and other_id >= 0:
+                            dense_pt_match_mapping[cur_id] = other_id
+        
+        # 计算三种类型的点的数量
+        # 注意：dense_pt_match_mapping中的cur_id是dense_cloud点的索引（0, 1, 2, ...）
+        
+        # 1. 和地图稠密点匹配上的当前帧稠密点（在dense_pt_match_mapping中）
+        points_matched_to_dense = list(dense_pt_match_mapping.keys())
+        count_matched_to_dense = len(points_matched_to_dense)
+        
+        # 2. 和map平面匹配上的当前帧稠密点
+        # 注意：这里需要理解"和map平面匹配"的含义
+        # 由于dense_cloud点本身没有直接关联到plane/ground，我们暂时理解为：
+        # 这些点在dense_pt_match_mapping中，但不在plane_match_infos中
+        # 但实际上，plane_match_infos是plane/ground的匹配，不是dense_cloud点的匹配
+        # 所以，我们暂时将"和map平面匹配"理解为：这些点不在dense_pt_match_mapping中，但在plane_match_infos中有对应的plane/ground匹配
+        # 但这样理解可能不对，因为dense_cloud点和plane/ground没有直接关联
+        
+        # 重新理解：用户可能是指这些点在dense_cloud中，并且这些点对应的plane或ground在plane_match_infos中有匹配
+        # 但由于没有直接关联，我们暂时将"和map平面匹配"理解为：这些点不在dense_pt_match_mapping中
+        # 但实际上，如果点在dense_pt_match_mapping中，说明它匹配到了map的dense_cloud点，而不是map的plane
+        
+        # 根据用户需求，我理解为：
+        # 1. "和map平面匹配上的当前帧稠密点"：这些点不在dense_pt_match_mapping中（因为它们匹配的是plane，不是dense_cloud）
+        # 2. "和地图稠密点匹配上的当前帧稠密点"：这些点在dense_pt_match_mapping中
+        # 3. "当前帧完全没有任何匹配的稠密点"：这些点既不在dense_pt_match_mapping中，也不在plane匹配中
+        
+        # 但由于没有plane匹配的dense_cloud点信息，我们暂时将"和map平面匹配"理解为空集
+        # 或者，我们可以理解为：这些点在dense_pt_match_mapping中，但对应的map点不在plane匹配中
+        # 但这需要额外的信息
+        
+        # 暂时简化处理：
+        # 1. 和地图稠密点匹配上的当前帧稠密点：在dense_pt_match_mapping中
+        # 2. 当前帧完全没有任何匹配的稠密点：不在dense_pt_match_mapping中
+        # 3. 和map平面匹配上的当前帧稠密点：暂时设为空（需要额外信息）
+        
+        points_matched_to_plane = []  # 暂时为空，需要额外信息来确定
+        count_matched_to_plane = 0
+        
+        # 3. 当前帧完全没有任何匹配的稠密点（不在dense_pt_match_mapping中）
+        all_matched_ids = set(dense_pt_match_mapping.keys())
+        points_unmatched = [i for i in range(num_total_points) if i not in all_matched_ids]
+        count_unmatched = len(points_unmatched)
+        
+        # 存储点索引信息，用于后续显示/隐藏
+        self.dense_cloud_point_indices = {
+            'matched_to_plane': points_matched_to_plane,
+            'matched_to_dense': points_matched_to_dense,
+            'unmatched': points_unmatched
+        }
+        
+        # 创建三个复选框
+        # 1. 和map平面匹配上的当前帧稠密点
+        var_matched_to_plane = tk.BooleanVar(value=True)
+        checkbox1 = ttk.Checkbutton(
+            dense_control_frame,
+            text=f"和map平面匹配上的当前帧稠密点 ({count_matched_to_plane} 个点)",
+            variable=var_matched_to_plane,
+            command=lambda: self._on_dense_cloud_checkbox_toggle(
+                'matched_to_plane', var_matched_to_plane, frame_id, transformed_dense_pcd
+            )
+        )
+        checkbox1.pack(anchor=tk.W, pady=5)
+        
+        # 2. 当前帧完全没有任何匹配的稠密点
+        var_unmatched = tk.BooleanVar(value=True)
+        checkbox2 = ttk.Checkbutton(
+            dense_control_frame,
+            text=f"当前帧完全没有任何匹配的稠密点 ({count_unmatched} 个点)",
+            variable=var_unmatched,
+            command=lambda: self._on_dense_cloud_checkbox_toggle(
+                'unmatched', var_unmatched, frame_id, transformed_dense_pcd
+            )
+        )
+        checkbox2.pack(anchor=tk.W, pady=5)
+        
+        # 3. 和地图稠密点匹配上的当前帧稠密点
+        var_matched_to_dense = tk.BooleanVar(value=True)
+        checkbox3 = ttk.Checkbutton(
+            dense_control_frame,
+            text=f"和地图稠密点匹配上的当前帧稠密点 ({count_matched_to_dense} 个点)",
+            variable=var_matched_to_dense,
+            command=lambda: self._on_dense_cloud_checkbox_toggle(
+                'matched_to_dense', var_matched_to_dense, frame_id, transformed_dense_pcd
+            )
+        )
+        checkbox3.pack(anchor=tk.W, pady=5)
+        
+        # 存储复选框变量
+        if not hasattr(self, 'dense_cloud_checkboxes'):
+            self.dense_cloud_checkboxes = {}
+        self.dense_cloud_checkboxes[frame_id] = {
+            'matched_to_plane': var_matched_to_plane,
+            'matched_to_dense': var_matched_to_dense,
+            'unmatched': var_unmatched
+        }
+        
+        # 如果复选框默认选中，创建对应的点云
+        if var_matched_to_plane.get():
+            self._on_dense_cloud_checkbox_toggle('matched_to_plane', var_matched_to_plane, frame_id, transformed_dense_pcd)
+        if var_matched_to_dense.get():
+            self._on_dense_cloud_checkbox_toggle('matched_to_dense', var_matched_to_dense, frame_id, transformed_dense_pcd)
+        if var_unmatched.get():
+            self._on_dense_cloud_checkbox_toggle('unmatched', var_unmatched, frame_id, transformed_dense_pcd)
+    
+    def _on_dense_cloud_checkbox_toggle(self, point_type: str, var: tk.BooleanVar, frame_id: int, original_pcd):
+        """当dense_cloud复选框切换时调用，显示/隐藏对应的点云"""
+        import open3d as o3d
+        import numpy as np
+        
+        is_selected = var.get()
+        geometry_name = f"filtered_dense_cloud_{frame_id}_{point_type}"
+        
+        if is_selected:
+            # 显示点云
+            if geometry_name in self.visualizer.hidden_geometries:
+                self.visualizer.show_geometry(geometry_name)
+            elif geometry_name not in self.visualizer.geometries:
+                # 如果点云不存在，创建它
+                if not hasattr(self, 'dense_cloud_point_indices') or point_type not in self.dense_cloud_point_indices:
+                    return
+                
+                indices = self.dense_cloud_point_indices[point_type]
+                if len(indices) == 0:
+                    return
+                
+                points = np.asarray(original_pcd.points)
+                colors = np.asarray(original_pcd.colors) if original_pcd.has_colors() else None
+                
+                # 创建新的点云对象
+                filtered_pcd = o3d.geometry.PointCloud()
+                filtered_points = points[indices]
+                filtered_pcd.points = o3d.utility.Vector3dVector(filtered_points)
+                
+                # 设置颜色（使用原始颜色）
+                if colors is not None and len(colors) == len(points):
+                    filtered_colors = colors[indices]
+                    filtered_pcd.colors = o3d.utility.Vector3dVector(filtered_colors)
+                else:
+                    # 如果没有颜色，使用默认颜色
+                    if point_type == 'matched_to_plane':
+                        default_color = [0.0, 1.0, 0.0]  # 绿色
+                    elif point_type == 'matched_to_dense':
+                        default_color = [0.0, 0.0, 1.0]  # 蓝色
+                    else:  # unmatched
+                        default_color = [1.0, 0.0, 0.0]  # 红色
+                    filtered_colors = np.tile(np.array(default_color), (len(filtered_points), 1))
+                    filtered_pcd.colors = o3d.utility.Vector3dVector(filtered_colors)
+                
+                # 设置法向量
+                if original_pcd.has_normals():
+                    normals = np.asarray(original_pcd.normals)
+                    filtered_normals = normals[indices]
+                    filtered_pcd.normals = o3d.utility.Vector3dVector(filtered_normals)
+                
+                # 添加到可视化器
+                self.visualizer.add_geometry(filtered_pcd, geometry_name, None)
+                
+                # 存储点云信息
+                self.visualizer.point_cloud_info[geometry_name] = {
+                    'type': 'filtered_dense_cloud',
+                    'frame_id': frame_id,
+                    'point_type': point_type,
+                    'point_count': len(indices)
+                }
+                
+                # 如果创建了过滤点云，隐藏原始的transformed dense_cloud
+                transformed_dense_name = f"transformed_cloud_{frame_id}_T_opt_w_b_dense_cloud"
+                if transformed_dense_name in self.visualizer.geometries:
+                    self.visualizer.hide_geometry(transformed_dense_name)
+        else:
+            # 隐藏点云
+            if geometry_name in self.visualizer.geometries:
+                self.visualizer.hide_geometry(geometry_name)
+            
+            # 检查是否所有过滤点云都被隐藏，如果是，恢复显示原始的transformed dense_cloud
+            all_hidden = True
+            for pt_type in ['matched_to_plane', 'matched_to_dense', 'unmatched']:
+                check_name = f"filtered_dense_cloud_{frame_id}_{pt_type}"
+                if check_name in self.visualizer.geometries:
+                    all_hidden = False
+                    break
+            
+            if all_hidden:
+                transformed_dense_name = f"transformed_cloud_{frame_id}_T_opt_w_b_dense_cloud"
+                if transformed_dense_name in self.visualizer.hidden_geometries:
+                    self.visualizer.show_geometry(transformed_dense_name)
+        
+        # 更新视图
+        self.visualizer.update_view()
     
     def _on_match_checkbox_toggle(self, match_index: int, var: tk.BooleanVar):
         """
@@ -1000,6 +1541,78 @@ class PointCloudGUI:
                 transformed_frame_name = f"transformed_cloud_{frame_id}_{transform_name}_{cur_type_name}_{cur_id}"
                 if transformed_frame_name in self.visualizer.geometries:
                     self.visualizer.hide_geometry(transformed_frame_name)
+        
+        # 更新视图
+        self.visualizer.update_view()
+    
+    def _on_unmatched_frame_checkbox_toggle(self, item_type: str, item_id: int, var: tk.BooleanVar):
+        """
+        当当前帧未匹配项复选框切换时调用，显示/隐藏对应的点云
+        
+        Args:
+            item_type: 项目类型 ('plane' 或 'ground')
+            item_id: 项目ID
+            var: 复选框变量
+        """
+        is_selected = var.get()
+        
+        # Frame点云名称: {type}_{id}
+        frame_cloud_name = f"{item_type}_{item_id}"
+        
+        # 获取当前帧ID（用于查找变换点云）
+        if not self.available_frames or self.current_frame_index >= len(self.available_frames):
+            return
+        frame_id = self.available_frames[self.current_frame_index]
+        
+        # 变换点云名称: transformed_cloud_{frame_id}_{transform_name}_{type}_{id}
+        transform_names = ['T_opt_w_b', 'T_init_w_b']
+        
+        if is_selected:
+            # 显示点云
+            if frame_cloud_name in self.visualizer.hidden_geometries:
+                self.visualizer.show_geometry(frame_cloud_name)
+            
+            # 显示变换点云
+            for transform_name in transform_names:
+                transformed_frame_name = f"transformed_cloud_{frame_id}_{transform_name}_{item_type}_{item_id}"
+                if transformed_frame_name in self.visualizer.hidden_geometries:
+                    self.visualizer.show_geometry(transformed_frame_name)
+        else:
+            # 隐藏点云
+            if frame_cloud_name in self.visualizer.geometries:
+                self.visualizer.hide_geometry(frame_cloud_name)
+            
+            # 隐藏变换点云
+            for transform_name in transform_names:
+                transformed_frame_name = f"transformed_cloud_{frame_id}_{transform_name}_{item_type}_{item_id}"
+                if transformed_frame_name in self.visualizer.geometries:
+                    self.visualizer.hide_geometry(transformed_frame_name)
+        
+        # 更新视图
+        self.visualizer.update_view()
+    
+    def _on_unmatched_map_checkbox_toggle(self, item_type: str, item_id: int, var: tk.BooleanVar):
+        """
+        当地图未匹配项复选框切换时调用，显示/隐藏对应的点云
+        
+        Args:
+            item_type: 项目类型 ('plane' 或 'ground')
+            item_id: 项目ID
+            var: 复选框变量
+        """
+        is_selected = var.get()
+        
+        # Map点云名称: map_{type}_{id}
+        map_cloud_name = f"map_{item_type}_{item_id}"
+        
+        if is_selected:
+            # 显示点云
+            if map_cloud_name in self.visualizer.hidden_geometries:
+                self.visualizer.show_geometry(map_cloud_name)
+        else:
+            # 隐藏点云
+            if map_cloud_name in self.visualizer.geometries:
+                self.visualizer.hide_geometry(map_cloud_name)
         
         # 更新视图
         self.visualizer.update_view()

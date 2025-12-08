@@ -1687,6 +1687,10 @@ class PointCloudVisualizer:
             # 显示map点云（使用匹配的变换后frame点云颜色，不匹配的用红色）
             self._display_point_clouds(map_data, Config.FRAME_TYPE_MAP, None, map_id_to_color, prefix="map_",
                                        dense_pt_match_mapping=dense_pt_match_mapping, frame_id=frame_id)
+            
+            # 绘制dense_cloud匹配点的连接线
+            if len(dense_pt_match_mapping) > 0:
+                self._draw_dense_pt_match_lines(frame_id, dense_pt_match_mapping, x_offset, y_offset, z_offset)
         else:
             # 如果不是FRAME类型，正常加载
             frame_data = self.data_loader.load_frame_data(frame_id, frame_type)
@@ -2247,3 +2251,103 @@ class PointCloudVisualizer:
             print(f"  - 未匹配的点数: {len(unmatched_ids_sorted)}")
         except Exception as e:
             print(f"[ERROR] 保存未匹配的点id失败: {e}")
+    
+    def _draw_dense_pt_match_lines(self, frame_id: int, dense_pt_match_mapping: Dict[int, int],
+                                   x_offset: float, y_offset: float, z_offset: float):
+        """
+        绘制dense_cloud匹配点的连接线
+        
+        Args:
+            frame_id: 帧ID
+            dense_pt_match_mapping: 匹配映射字典，格式为 {cur_id (frame): other_id (map)}
+            x_offset: x轴偏移量
+            y_offset: y轴偏移量
+            z_offset: z轴偏移量
+        """
+        if self.vis is None:
+            return
+        
+        # 获取transformed dense_cloud点云
+        transformed_dense_name = f"transformed_cloud_{frame_id}_T_opt_w_b_dense_cloud"
+        transformed_pcd = None
+        
+        if transformed_dense_name in self.geometries:
+            transformed_pcd = self.geometries[transformed_dense_name]
+        elif transformed_dense_name in self.hidden_geometries:
+            transformed_pcd = self.hidden_geometries[transformed_dense_name]['geometry']
+        
+        # 获取map dense_cloud点云
+        map_dense_name = "map_dense_cloud"
+        map_pcd = None
+        
+        if map_dense_name in self.geometries:
+            map_pcd = self.geometries[map_dense_name]
+        elif map_dense_name in self.hidden_geometries:
+            map_pcd = self.hidden_geometries[map_dense_name]['geometry']
+        
+        # 检查点云是否存在
+        if transformed_pcd is None or map_pcd is None:
+            print(f"[WARNING] 无法绘制连接线: transformed_dense_cloud或map_dense_cloud不存在")
+            return
+        
+        if not isinstance(transformed_pcd, o3d.geometry.PointCloud) or not isinstance(map_pcd, o3d.geometry.PointCloud):
+            print(f"[WARNING] 无法绘制连接线: 点云类型不正确")
+            return
+        
+        # 获取点坐标
+        transformed_points = np.asarray(transformed_pcd.points)
+        map_points = np.asarray(map_pcd.points)
+        
+        # 创建连接线的点和线段
+        line_points = []
+        line_indices = []
+        
+        point_idx = 0
+        valid_matches = 0
+        
+        for cur_id, other_id in dense_pt_match_mapping.items():
+            # 检查索引是否有效
+            if cur_id < 0 or cur_id >= len(transformed_points):
+                continue
+            if other_id < 0 or other_id >= len(map_points):
+                continue
+            
+            # 添加frame点
+            frame_point = transformed_points[cur_id]
+            line_points.append(frame_point)
+            frame_point_idx = point_idx
+            point_idx += 1
+            
+            # 添加map点
+            map_point = map_points[other_id]
+            line_points.append(map_point)
+            map_point_idx = point_idx
+            point_idx += 1
+            
+            # 添加线段（连接frame点和map点）
+            line_indices.append([frame_point_idx, map_point_idx])
+            valid_matches += 1
+        
+        if len(line_points) == 0:
+            print(f"[INFO] 没有有效的匹配点可以绘制连接线")
+            return
+        
+        # 创建LineSet
+        lineset = o3d.geometry.LineSet()
+        lineset.points = o3d.utility.Vector3dVector(np.array(line_points))
+        lineset.lines = o3d.utility.Vector2iVector(np.array(line_indices))
+        
+        # 设置连接线颜色（使用黄色，便于区分）
+        line_colors = np.tile(np.array([1.0, 1.0, 0.0]), (len(line_indices), 1))  # 黄色
+        lineset.colors = o3d.utility.Vector3dVector(line_colors)
+        
+        # 添加到可视化器
+        geometry_name = f"dense_pt_match_lines_{frame_id}"
+        
+        # 如果已存在，先移除
+        if geometry_name in self.geometries:
+            self.remove_geometry(geometry_name)
+        
+        self.add_geometry(lineset, geometry_name, None)
+        
+        print(f"[INFO] 已绘制 {valid_matches} 条dense_cloud匹配点连接线")
