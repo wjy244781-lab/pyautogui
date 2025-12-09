@@ -7,20 +7,6 @@ import json
 from typing import Dict, Any, Optional
 
 
-def create_class_from_json(json_string: str, class_name: str = "DynamicObject"):
-    """
-    根据 JSON 字符串动态创建一个具有对应属性的类。
-    注意：此方法不进行类型验证，所有属性都是简单赋值。
-    
-    Args:
-        json_string: JSON字符串
-        class_name: 类名称
-        
-    Returns:
-        动态创建的类实例
-    """
-    data_dict = json.loads(json_string)
-    return create_class_from_dict(data_dict, class_name)
 
 
 def create_class_from_dict(data_dict: Dict[str, Any], class_name: str = "DynamicObject"):

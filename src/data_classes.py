@@ -266,16 +266,5 @@ class FrameData:
             count += plane.get_point_count()
         return count
     
-    def get_summary(self) -> Dict[str, Any]:
-        """获取数据摘要"""
-        return {
-            'frame_id': self.frame_id,
-            'frame_type': self.frame_type,
-            'has_dense_cloud': self.dense_cloud is not None,
-            'num_grounds': len(self.grounds),
-            'num_planes': len(self.planes),
-            'has_debug_info': self.debug_info is not None,
-            'has_match_info': self.match_info is not None,
-            'total_points': self.get_total_point_count()
-        }
+
 

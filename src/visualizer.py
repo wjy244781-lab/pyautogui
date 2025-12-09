@@ -1688,7 +1688,7 @@ class PointCloudVisualizer:
             self._display_point_clouds(map_data, Config.FRAME_TYPE_MAP, None, map_id_to_color, prefix="map_",
                                        dense_pt_match_mapping=dense_pt_match_mapping, frame_id=frame_id)
             
-            # 绘制dense_cloud匹配点的连接线
+            # 绘制dense_cloud匹配点的连接线（按点类型分别创建）
             if len(dense_pt_match_mapping) > 0:
                 self._draw_dense_pt_match_lines(frame_id, dense_pt_match_mapping, x_offset, y_offset, z_offset)
         else:
@@ -2255,7 +2255,7 @@ class PointCloudVisualizer:
     def _draw_dense_pt_match_lines(self, frame_id: int, dense_pt_match_mapping: Dict[int, int],
                                    x_offset: float, y_offset: float, z_offset: float):
         """
-        绘制dense_cloud匹配点的连接线
+        绘制dense_cloud匹配点的连接线（按点类型分别创建，便于分别控制显示/隐藏）
         
         Args:
             frame_id: 帧ID
@@ -2298,6 +2298,43 @@ class PointCloudVisualizer:
         transformed_points = np.asarray(transformed_pcd.points)
         map_points = np.asarray(map_pcd.points)
         
+        # 根据点类型分类匹配关系
+        # matched_to_dense: 在dense_pt_match_mapping中的点（这些点有对应的连接线）
+        matched_to_dense_mapping = dense_pt_match_mapping.copy()
+        
+        # 为matched_to_dense类型创建连接线
+        if len(matched_to_dense_mapping) > 0:
+            self._create_lineset_for_point_type(
+                frame_id, 'matched_to_dense', matched_to_dense_mapping,
+                transformed_points, map_points
+            )
+        
+        # 存储匹配映射信息，供GUI使用
+        if not hasattr(self, 'dense_pt_match_mappings'):
+            self.dense_pt_match_mappings = {}
+        self.dense_pt_match_mappings[frame_id] = {
+            'matched_to_dense': matched_to_dense_mapping
+        }
+        
+        print(f"[INFO] 已绘制 {len(matched_to_dense_mapping)} 条dense_cloud匹配点连接线（matched_to_dense类型）")
+    
+    def _create_lineset_for_point_type(self, frame_id: int, point_type: str, 
+                                      match_mapping: Dict[int, int],
+                                      transformed_points: np.ndarray, 
+                                      map_points: np.ndarray):
+        """
+        为指定点类型创建连接线LineSet
+        
+        Args:
+            frame_id: 帧ID
+            point_type: 点类型（'matched_to_dense', 'matched_to_plane', 'unmatched'）
+            match_mapping: 匹配映射字典，格式为 {cur_id (frame): other_id (map)}
+            transformed_points: transformed dense_cloud的点坐标数组
+            map_points: map dense_cloud的点坐标数组
+        """
+        if len(match_mapping) == 0:
+            return
+        
         # 创建连接线的点和线段
         line_points = []
         line_indices = []
@@ -2305,7 +2342,7 @@ class PointCloudVisualizer:
         point_idx = 0
         valid_matches = 0
         
-        for cur_id, other_id in dense_pt_match_mapping.items():
+        for cur_id, other_id in match_mapping.items():
             # 检查索引是否有效
             if cur_id < 0 or cur_id >= len(transformed_points):
                 continue
@@ -2329,7 +2366,6 @@ class PointCloudVisualizer:
             valid_matches += 1
         
         if len(line_points) == 0:
-            print(f"[INFO] 没有有效的匹配点可以绘制连接线")
             return
         
         # 创建LineSet
@@ -2342,12 +2378,10 @@ class PointCloudVisualizer:
         lineset.colors = o3d.utility.Vector3dVector(line_colors)
         
         # 添加到可视化器
-        geometry_name = f"dense_pt_match_lines_{frame_id}"
+        geometry_name = f"dense_pt_match_lines_{frame_id}_{point_type}"
         
         # 如果已存在，先移除
         if geometry_name in self.geometries:
             self.remove_geometry(geometry_name)
         
         self.add_geometry(lineset, geometry_name, None)
-        
-        print(f"[INFO] 已绘制 {valid_matches} 条dense_cloud匹配点连接线")

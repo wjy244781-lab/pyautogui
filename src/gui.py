@@ -41,7 +41,7 @@ class PointCloudGUI:
         """创建控制面板"""
         self.root = tk.Tk()
         self.root.title("点云可视化控制面板")
-        self.root.geometry("1400x800")  # 增加宽度以容纳左右分栏
+        self.root.geometry("1400x1000")  # 增加宽度以容纳左右分栏
         
         # 设置控制面板始终置顶，确保它始终显示在Open3D窗口之上
         # 这样即使点击Open3D窗口，控制面板也会保持在最前面
@@ -132,37 +132,9 @@ class PointCloudGUI:
         reset_button = ttk.Button(control_frame, text="重置视图", command=self.reset_view)
         reset_button.grid(row=1, column=0, columnspan=2, padx=5, pady=5, sticky=(tk.W, tk.E))
         
-        # 点云显示/隐藏控制框架
-        visibility_frame = ttk.LabelFrame(control_frame, text="点云显示控制", padding="5")
-        visibility_frame.grid(row=2, column=0, columnspan=2, padx=5, pady=5, sticky=(tk.W, tk.E))
-        
-        # Ground点云显示/隐藏按钮
-        self.ground_button = ttk.Button(
-            visibility_frame, 
-            text="隐藏Ground点云", 
-            command=lambda: self.toggle_point_cloud_visibility('ground')
-        )
-        self.ground_button.grid(row=0, column=0, columnspan=2, padx=5, pady=2, sticky=(tk.W, tk.E))
-        
-        # Plane点云显示/隐藏按钮
-        self.plane_button = ttk.Button(
-            visibility_frame, 
-            text="隐藏Plane点云", 
-            command=lambda: self.toggle_point_cloud_visibility('plane')
-        )
-        self.plane_button.grid(row=1, column=0, columnspan=2, padx=5, pady=2, sticky=(tk.W, tk.E))
-        
-        # Dense Cloud点云显示/隐藏按钮
-        self.dense_cloud_button = ttk.Button(
-            visibility_frame, 
-            text="隐藏Dense Cloud点云", 
-            command=lambda: self.toggle_point_cloud_visibility('dense_cloud')
-        )
-        self.dense_cloud_button.grid(row=2, column=0, columnspan=2, padx=5, pady=2, sticky=(tk.W, tk.E))
-        
         # 变换点云控制框架
         transform_frame = ttk.LabelFrame(control_frame, text="变换点云控制", padding="5")
-        transform_frame.grid(row=3, column=0, columnspan=2, padx=5, pady=5, sticky=(tk.W, tk.E))
+        transform_frame.grid(row=2, column=0, columnspan=2, padx=5, pady=5, sticky=(tk.W, tk.E))
         
         # 绑定偏移值变化事件，自动重新加载当前帧
         def on_offset_change(*args):
@@ -245,7 +217,7 @@ class PointCloudGUI:
         
         # 退出按钮
         exit_button = ttk.Button(control_frame, text="退出", command=self.on_closing)
-        exit_button.grid(row=5, column=0, columnspan=2, padx=5, pady=5, sticky=(tk.W, tk.E))
+        exit_button.grid(row=4, column=0, columnspan=2, padx=5, pady=5, sticky=(tk.W, tk.E))
         
         # 右侧Debug信息面板
         right_panel = ttk.Frame(main_container)
@@ -275,8 +247,6 @@ class PointCloudGUI:
         # 配置列权重
         control_frame.columnconfigure(0, weight=1)
         control_frame.columnconfigure(1, weight=1)
-        visibility_frame.columnconfigure(0, weight=1)
-        visibility_frame.columnconfigure(1, weight=1)
         debug_status_frame.columnconfigure(0, weight=1)
         main_frame.columnconfigure(0, weight=1)
         left_panel.columnconfigure(0, weight=1)
@@ -284,9 +254,6 @@ class PointCloudGUI:
         self.root.columnconfigure(0, weight=0)
         self.root.columnconfigure(1, weight=1)
         self.root.rowconfigure(0, weight=1)
-        
-        # 初始化按钮状态
-        self.update_visibility_buttons()
         
         # 窗口关闭事件
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -417,9 +384,6 @@ class PointCloudGUI:
         # 更新debug信息显示
         self.update_debug_info_display()
         
-        # 更新可见性按钮状态
-        self.update_visibility_buttons()
-        
         print(f"已加载帧 {frame_id} (frame类型)")
     
     def update_visualizer(self):
@@ -518,12 +482,7 @@ class PointCloudGUI:
             self.running = False
             self.visualizer.destroy()
     
-    def get_current_frame_info(self) -> dict:
-        """获取当前帧信息"""
-        if self.available_frames and self.current_frame_index < len(self.available_frames):
-            frame_id = self.available_frames[self.current_frame_index]
-            return self.visualizer.get_frame_info(frame_id)
-        return {}
+
     
     def update_debug_info_display(self):
         """更新debug信息显示"""
@@ -578,24 +537,25 @@ class PointCloudGUI:
         if hasattr(self, 'dense_cloud_point_indices'):
             delattr(self, 'dense_cloud_point_indices')
         
-        # 清除之前帧的过滤dense_cloud点云，并恢复原始的transformed dense_cloud显示
-        if self.visualizer.vis is not None:
-            filtered_names = [
-                name for name in list(self.visualizer.geometries.keys()) + list(self.visualizer.hidden_geometries.keys())
-                if name.startswith('filtered_dense_cloud_')
-            ]
-            for name in filtered_names:
-                if name in self.visualizer.geometries:
-                    self.visualizer.remove_geometry(name)
-                elif name in self.visualizer.hidden_geometries:
-                    del self.visualizer.hidden_geometries[name]
+            # 清除之前帧的过滤dense_cloud点云
+            # 注意：不恢复原始的transformed dense_cloud显示，因为稠密点的显示应该完全由复选框控制
+            if self.visualizer.vis is not None:
+                filtered_names = [
+                    name for name in list(self.visualizer.geometries.keys()) + list(self.visualizer.hidden_geometries.keys())
+                    if name.startswith('filtered_dense_cloud_')
+                ]
+                for name in filtered_names:
+                    if name in self.visualizer.geometries:
+                        self.visualizer.remove_geometry(name)
+                    elif name in self.visualizer.hidden_geometries:
+                        del self.visualizer.hidden_geometries[name]
             
-            # 恢复原始的transformed dense_cloud显示（如果存在）
+            # 确保原始的transformed dense_cloud被隐藏（由复选框控制显示）
             if self.available_frames and self.current_frame_index < len(self.available_frames):
                 current_frame_id = self.available_frames[self.current_frame_index]
                 transformed_dense_name = f"transformed_cloud_{current_frame_id}_T_opt_w_b_dense_cloud"
-                if transformed_dense_name in self.visualizer.hidden_geometries:
-                    self.visualizer.show_geometry(transformed_dense_name)
+                if transformed_dense_name in self.visualizer.geometries:
+                    self.visualizer.hide_geometry(transformed_dense_name)
         
         # 直接读取debug.txt文件内容
         debug_path = Config.get_data_frame_path(frame_id) / "debug.txt"
@@ -663,176 +623,7 @@ class PointCloudGUI:
             ttk.Label(self.match_frame, text="match.json 文件不存在或无法加载", 
                      font=("Arial", 10)).pack(pady=20)
     
-    def _format_debug_info(self, parent, debug_info):
-        """格式化显示debug信息"""
-        import json
-        import numpy as np
-        
-        # 标题
-        title_label = ttk.Label(parent, text="优化信息", font=("Arial", 14, "bold"))
-        title_label.pack(pady=(0, 15))
-        
-        # 变换矩阵信息
-        if "T_init_w_b" in debug_info and "T_opt_w_b" in debug_info:
-            # 初始变换
-            t_init = debug_info["T_init_w_b"]
-            t_opt = debug_info["T_opt_w_b"]
-            
-            # 创建变换矩阵显示框架
-            transform_frame = ttk.LabelFrame(parent, text="变换矩阵", padding="10")
-            transform_frame.pack(fill=tk.X, pady=5)
-            
-            # 初始变换
-            init_frame = ttk.LabelFrame(transform_frame, text="初始变换 (T_init_w_b)", padding="5")
-            init_frame.pack(fill=tk.X, pady=5)
-            
-            q_init = t_init.get("q", {})
-            t_init_vec = t_init.get("t", {})
-            
-            ttk.Label(init_frame, text="四元数 (w, x, y, z):", font=("Arial", 9, "bold")).pack(anchor=tk.W)
-            ttk.Label(init_frame, 
-                     text=f"({q_init.get('w', 0):.8f}, {q_init.get('x', 0):.8f}, "
-                          f"{q_init.get('y', 0):.8f}, {q_init.get('z', 0):.8f})",
-                     font=("Courier", 9)).pack(anchor=tk.W, padx=20)
-            
-            ttk.Label(init_frame, text="平移 (a, b, c):", font=("Arial", 9, "bold")).pack(anchor=tk.W, pady=(5, 0))
-            ttk.Label(init_frame, 
-                     text=f"({t_init_vec.get('a', 0):.8f}, {t_init_vec.get('b', 0):.8f}, "
-                          f"{t_init_vec.get('c', 0):.8f})",
-                     font=("Courier", 9)).pack(anchor=tk.W, padx=20)
-            
-            # 优化后变换
-            opt_frame = ttk.LabelFrame(transform_frame, text="优化后变换 (T_opt_w_b)", padding="5")
-            opt_frame.pack(fill=tk.X, pady=5)
-            
-            q_opt = t_opt.get("q", {})
-            t_opt_vec = t_opt.get("t", {})
-            
-            ttk.Label(opt_frame, text="四元数 (w, x, y, z):", font=("Arial", 9, "bold")).pack(anchor=tk.W)
-            ttk.Label(opt_frame, 
-                     text=f"({q_opt.get('w', 0):.8f}, {q_opt.get('x', 0):.8f}, "
-                          f"{q_opt.get('y', 0):.8f}, {q_opt.get('z', 0):.8f})",
-                     font=("Courier", 9)).pack(anchor=tk.W, padx=20)
-            
-            ttk.Label(opt_frame, text="平移 (a, b, c):", font=("Arial", 9, "bold")).pack(anchor=tk.W, pady=(5, 0))
-            ttk.Label(opt_frame, 
-                     text=f"({t_opt_vec.get('a', 0):.8f}, {t_opt_vec.get('b', 0):.8f}, "
-                          f"{t_opt_vec.get('c', 0):.8f})",
-                     font=("Courier", 9)).pack(anchor=tk.W, padx=20)
-            
-            # 计算差异
-            diff_frame = ttk.LabelFrame(transform_frame, text="优化变化量", padding="5")
-            diff_frame.pack(fill=tk.X, pady=5)
-            
-            q_diff_w = q_opt.get('w', 0) - q_init.get('w', 0)
-            q_diff_x = q_opt.get('x', 0) - q_init.get('x', 0)
-            q_diff_y = q_opt.get('y', 0) - q_init.get('y', 0)
-            q_diff_z = q_opt.get('z', 0) - q_init.get('z', 0)
-            
-            t_diff_a = t_opt_vec.get('a', 0) - t_init_vec.get('a', 0)
-            t_diff_b = t_opt_vec.get('b', 0) - t_init_vec.get('b', 0)
-            t_diff_c = t_opt_vec.get('c', 0) - t_init_vec.get('c', 0)
-            
-            ttk.Label(diff_frame, text="四元数变化:", font=("Arial", 9, "bold")).pack(anchor=tk.W)
-            ttk.Label(diff_frame, 
-                     text=f"({q_diff_w:+.8e}, {q_diff_x:+.8e}, {q_diff_y:+.8e}, {q_diff_z:+.8e})",
-                     font=("Courier", 9), foreground="blue").pack(anchor=tk.W, padx=20)
-            
-            ttk.Label(diff_frame, text="平移变化:", font=("Arial", 9, "bold")).pack(anchor=tk.W, pady=(5, 0))
-            ttk.Label(diff_frame, 
-                     text=f"({t_diff_a:+.8e}, {t_diff_b:+.8e}, {t_diff_c:+.8e})",
-                     font=("Courier", 9), foreground="blue").pack(anchor=tk.W, padx=20)
-        
-        # 迭代信息
-        if "iter_infos" in debug_info and len(debug_info["iter_infos"]) > 0:
-            iter_frame = ttk.LabelFrame(parent, text="迭代过程", padding="10")
-            iter_frame.pack(fill=tk.BOTH, expand=True, pady=5)
-            
-            # 创建表格显示迭代信息
-            tree_frame = ttk.Frame(iter_frame)
-            tree_frame.pack(fill=tk.BOTH, expand=True)
-            
-            # 创建Treeview表格
-            tree = ttk.Treeview(tree_frame, columns=("iter", "cost_a_before", "cost_b_before", "cost_c_before",
-                                                      "cost_a_after", "cost_b_after", "cost_c_after",
-                                                      "improvement_a", "improvement_b", "improvement_c"),
-                               show="headings", height=15)
-            
-            # 设置列标题
-            tree.heading("iter", text="迭代")
-            tree.heading("cost_a_before", text="成本A(前)")
-            tree.heading("cost_b_before", text="成本B(前)")
-            tree.heading("cost_c_before", text="成本C(前)")
-            tree.heading("cost_a_after", text="成本A(后)")
-            tree.heading("cost_b_after", text="成本B(后)")
-            tree.heading("cost_c_after", text="成本C(后)")
-            tree.heading("improvement_a", text="改进A")
-            tree.heading("improvement_b", text="改进B")
-            tree.heading("improvement_c", text="改进C")
-            
-            # 设置列宽
-            tree.column("iter", width=50)
-            for col in ["cost_a_before", "cost_b_before", "cost_c_before",
-                       "cost_a_after", "cost_b_after", "cost_c_after",
-                       "improvement_a", "improvement_b", "improvement_c"]:
-                tree.column(col, width=90)
-            
-            # 添加数据
-            for idx, iter_info in enumerate(debug_info["iter_infos"]):
-                cost_before = iter_info.get("axis_cost_before", {})
-                cost_after = iter_info.get("axis_cost_after", {})
-                
-                cost_a_before = cost_before.get("a", 0)
-                cost_b_before = cost_before.get("b", 0)
-                cost_c_before = cost_before.get("c", 0)
-                
-                cost_a_after = cost_after.get("a", 0)
-                cost_b_after = cost_after.get("b", 0)
-                cost_c_after = cost_after.get("c", 0)
-                
-                improvement_a = cost_a_before - cost_a_after
-                improvement_b = cost_b_before - cost_b_after
-                improvement_c = cost_c_before - cost_c_after
-                
-                tree.insert("", tk.END, values=(
-                    idx + 1,
-                    f"{cost_a_before:.2e}",
-                    f"{cost_b_before:.2e}",
-                    f"{cost_c_before:.2e}",
-                    f"{cost_a_after:.2e}",
-                    f"{cost_b_after:.2e}",
-                    f"{cost_c_after:.2e}",
-                    f"{improvement_a:+.2e}",
-                    f"{improvement_b:+.2e}",
-                    f"{improvement_c:+.2e}"
-                ))
-            
-            # 添加滚动条
-            tree_scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=tree.yview)
-            tree.configure(yscrollcommand=tree_scrollbar.set)
-            
-            tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-            tree_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-            
-            # 统计信息
-            stats_label = ttk.Label(iter_frame, 
-                                   text=f"总迭代次数: {len(debug_info['iter_infos'])}",
-                                   font=("Arial", 9))
-            stats_label.pack(pady=5)
-        
-        # 原始JSON（可折叠）
-        json_frame = ttk.LabelFrame(parent, text="原始JSON数据", padding="5")
-        json_frame.pack(fill=tk.BOTH, expand=True, pady=5)
-        
-        json_text = tk.Text(json_frame, wrap=tk.WORD, font=("Courier", 8), height=12)
-        json_scrollbar = ttk.Scrollbar(json_frame, orient=tk.VERTICAL, command=json_text.yview)
-        json_text.configure(yscrollcommand=json_scrollbar.set)
-        
-        json_text.insert(tk.END, json.dumps(debug_info, indent=2, ensure_ascii=False))
-        json_text.config(state=tk.DISABLED)
-        
-        json_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        json_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
     
     def _format_match_info(self, parent, match_info):
         """格式化显示plane_match_infos匹配信息，每个匹配关系可以选中/取消选中"""
@@ -943,7 +734,7 @@ class PointCloudGUI:
         match_column.rowconfigure(0, weight=1)
         
         # 创建滚动框架
-        match_canvas = tk.Canvas(match_column)
+        match_canvas = tk.Canvas(match_column, height=700)
         match_scrollbar = ttk.Scrollbar(match_column, orient=tk.VERTICAL, command=match_canvas.yview)
         match_scrollable_frame = ttk.Frame(match_canvas)
         
@@ -1070,7 +861,7 @@ class PointCloudGUI:
         unmatched_frame_column.rowconfigure(0, weight=1)
         
         # 创建滚动框架
-        frame_canvas = tk.Canvas(unmatched_frame_column)
+        frame_canvas = tk.Canvas(unmatched_frame_column, height=700)
         frame_scrollbar = ttk.Scrollbar(unmatched_frame_column, orient=tk.VERTICAL, command=frame_canvas.yview)
         frame_scrollable_frame = ttk.Frame(frame_canvas)
         
@@ -1157,7 +948,7 @@ class PointCloudGUI:
         unmatched_map_column.rowconfigure(0, weight=1)
         
         # 创建滚动框架
-        map_canvas = tk.Canvas(unmatched_map_column)
+        map_canvas = tk.Canvas(unmatched_map_column, height=700)
         map_scrollbar = ttk.Scrollbar(unmatched_map_column, orient=tk.VERTICAL, command=map_canvas.yview)
         map_scrollable_frame = ttk.Frame(map_canvas)
         
@@ -1265,7 +1056,7 @@ class PointCloudGUI:
         
         num_total_points = len(transformed_dense_pcd.points)
         
-        # 提取dense_pt_match_infos
+        # 提取dense_pt_match_infos（和地图稠密点匹配）
         dense_pt_match_mapping = {}  # {cur_id (frame): other_id (map)}
         if match_info:
             if hasattr(match_info, 'dense_pt_match_infos'):
@@ -1288,44 +1079,53 @@ class PointCloudGUI:
                         if isinstance(cur_id, int) and isinstance(other_id, int) and other_id >= 0:
                             dense_pt_match_mapping[cur_id] = other_id
         
+        # 提取pt_match_infos（和map平面匹配）
+        # cur_id是当前帧稠密点id，other_id是对象{a: 类型(1=plane, 2=ground), b: id}
+        pt_match_mapping = {}  # {cur_id (frame): other_id_info}
+        if match_info:
+            if hasattr(match_info, 'pt_match_infos'):
+                for match in match_info.pt_match_infos:
+                    if hasattr(match, 'cur_id') and hasattr(match, 'other_id'):
+                        cur_id = match.cur_id
+                        other_id = match.other_id
+                        if isinstance(cur_id, int):
+                            # other_id可能是对象或字典
+                            if isinstance(other_id, dict):
+                                pt_match_mapping[cur_id] = other_id
+                            elif hasattr(other_id, 'a') and hasattr(other_id, 'b'):
+                                pt_match_mapping[cur_id] = {'a': other_id.a, 'b': other_id.b}
+                    elif isinstance(match, dict) and 'cur_id' in match and 'other_id' in match:
+                        cur_id = match['cur_id']
+                        other_id = match['other_id']
+                        if isinstance(cur_id, int):
+                            if isinstance(other_id, dict):
+                                pt_match_mapping[cur_id] = other_id
+                            elif hasattr(other_id, 'a') and hasattr(other_id, 'b'):
+                                pt_match_mapping[cur_id] = {'a': other_id.a, 'b': other_id.b}
+            elif isinstance(match_info, dict) and 'pt_match_infos' in match_info:
+                for match in match_info['pt_match_infos']:
+                    if isinstance(match, dict) and 'cur_id' in match and 'other_id' in match:
+                        cur_id = match['cur_id']
+                        other_id = match['other_id']
+                        if isinstance(cur_id, int):
+                            if isinstance(other_id, dict):
+                                pt_match_mapping[cur_id] = other_id
+                            elif hasattr(other_id, 'a') and hasattr(other_id, 'b'):
+                                pt_match_mapping[cur_id] = {'a': other_id.a, 'b': other_id.b}
+        
         # 计算三种类型的点的数量
-        # 注意：dense_pt_match_mapping中的cur_id是dense_cloud点的索引（0, 1, 2, ...）
+        # 注意：cur_id是dense_cloud点的索引（0, 1, 2, ...）
         
         # 1. 和地图稠密点匹配上的当前帧稠密点（在dense_pt_match_mapping中）
         points_matched_to_dense = list(dense_pt_match_mapping.keys())
         count_matched_to_dense = len(points_matched_to_dense)
         
-        # 2. 和map平面匹配上的当前帧稠密点
-        # 注意：这里需要理解"和map平面匹配"的含义
-        # 由于dense_cloud点本身没有直接关联到plane/ground，我们暂时理解为：
-        # 这些点在dense_pt_match_mapping中，但不在plane_match_infos中
-        # 但实际上，plane_match_infos是plane/ground的匹配，不是dense_cloud点的匹配
-        # 所以，我们暂时将"和map平面匹配"理解为：这些点不在dense_pt_match_mapping中，但在plane_match_infos中有对应的plane/ground匹配
-        # 但这样理解可能不对，因为dense_cloud点和plane/ground没有直接关联
+        # 2. 和map平面匹配上的当前帧稠密点（在pt_match_mapping中）
+        points_matched_to_plane = list(pt_match_mapping.keys())
+        count_matched_to_plane = len(points_matched_to_plane)
         
-        # 重新理解：用户可能是指这些点在dense_cloud中，并且这些点对应的plane或ground在plane_match_infos中有匹配
-        # 但由于没有直接关联，我们暂时将"和map平面匹配"理解为：这些点不在dense_pt_match_mapping中
-        # 但实际上，如果点在dense_pt_match_mapping中，说明它匹配到了map的dense_cloud点，而不是map的plane
-        
-        # 根据用户需求，我理解为：
-        # 1. "和map平面匹配上的当前帧稠密点"：这些点不在dense_pt_match_mapping中（因为它们匹配的是plane，不是dense_cloud）
-        # 2. "和地图稠密点匹配上的当前帧稠密点"：这些点在dense_pt_match_mapping中
-        # 3. "当前帧完全没有任何匹配的稠密点"：这些点既不在dense_pt_match_mapping中，也不在plane匹配中
-        
-        # 但由于没有plane匹配的dense_cloud点信息，我们暂时将"和map平面匹配"理解为空集
-        # 或者，我们可以理解为：这些点在dense_pt_match_mapping中，但对应的map点不在plane匹配中
-        # 但这需要额外的信息
-        
-        # 暂时简化处理：
-        # 1. 和地图稠密点匹配上的当前帧稠密点：在dense_pt_match_mapping中
-        # 2. 当前帧完全没有任何匹配的稠密点：不在dense_pt_match_mapping中
-        # 3. 和map平面匹配上的当前帧稠密点：暂时设为空（需要额外信息）
-        
-        points_matched_to_plane = []  # 暂时为空，需要额外信息来确定
-        count_matched_to_plane = 0
-        
-        # 3. 当前帧完全没有任何匹配的稠密点（不在dense_pt_match_mapping中）
-        all_matched_ids = set(dense_pt_match_mapping.keys())
+        # 3. 当前帧完全没有任何匹配的稠密点（既不在dense_pt_match_mapping中，也不在pt_match_mapping中）
+        all_matched_ids = set(dense_pt_match_mapping.keys()) | set(pt_match_mapping.keys())
         points_unmatched = [i for i in range(num_total_points) if i not in all_matched_ids]
         count_unmatched = len(points_unmatched)
         
@@ -1391,12 +1191,15 @@ class PointCloudGUI:
             self._on_dense_cloud_checkbox_toggle('unmatched', var_unmatched, frame_id, transformed_dense_pcd)
     
     def _on_dense_cloud_checkbox_toggle(self, point_type: str, var: tk.BooleanVar, frame_id: int, original_pcd):
-        """当dense_cloud复选框切换时调用，显示/隐藏对应的点云"""
+        """当dense_cloud复选框切换时调用，显示/隐藏对应的点云和连接线"""
         import open3d as o3d
         import numpy as np
         
         is_selected = var.get()
         geometry_name = f"filtered_dense_cloud_{frame_id}_{point_type}"
+        line_geometry_name = f"dense_pt_match_lines_{frame_id}_{point_type}"
+        
+        transformed_dense_name = f"transformed_cloud_{frame_id}_T_opt_w_b_dense_cloud"
         
         if is_selected:
             # 显示点云
@@ -1450,28 +1253,36 @@ class PointCloudGUI:
                     'point_type': point_type,
                     'point_count': len(indices)
                 }
-                
-                # 如果创建了过滤点云，隐藏原始的transformed dense_cloud
-                transformed_dense_name = f"transformed_cloud_{frame_id}_T_opt_w_b_dense_cloud"
-                if transformed_dense_name in self.visualizer.geometries:
-                    self.visualizer.hide_geometry(transformed_dense_name)
+            
+            # 显示对应的连接线（如果存在）
+            if line_geometry_name in self.visualizer.hidden_geometries:
+                self.visualizer.show_geometry(line_geometry_name)
         else:
             # 隐藏点云
             if geometry_name in self.visualizer.geometries:
                 self.visualizer.hide_geometry(geometry_name)
             
-            # 检查是否所有过滤点云都被隐藏，如果是，恢复显示原始的transformed dense_cloud
-            all_hidden = True
+            # 隐藏对应的连接线（如果存在）
+            if line_geometry_name in self.visualizer.geometries:
+                self.visualizer.hide_geometry(line_geometry_name)
+        
+        # 根据所有复选框的状态来决定是否显示原始的transformed dense_cloud
+        # 只有当至少有一个复选框选中时，才隐藏原始的transformed dense_cloud
+        # 如果所有复选框都未选中，也隐藏原始的transformed dense_cloud（避免残余显示）
+        any_selected = False
+        if hasattr(self, 'dense_cloud_checkboxes') and frame_id in self.dense_cloud_checkboxes:
+            checkboxes = self.dense_cloud_checkboxes[frame_id]
             for pt_type in ['matched_to_plane', 'matched_to_dense', 'unmatched']:
-                check_name = f"filtered_dense_cloud_{frame_id}_{pt_type}"
-                if check_name in self.visualizer.geometries:
-                    all_hidden = False
-                    break
-            
-            if all_hidden:
-                transformed_dense_name = f"transformed_cloud_{frame_id}_T_opt_w_b_dense_cloud"
-                if transformed_dense_name in self.visualizer.hidden_geometries:
-                    self.visualizer.show_geometry(transformed_dense_name)
+                if pt_type in checkboxes:
+                    var = checkboxes[pt_type]
+                    if var.get():
+                        any_selected = True
+                        break
+        
+        # 无论是否有复选框选中，都隐藏原始的transformed dense_cloud
+        # 因为用户通过复选框来控制显示哪些稠密点，原始的transformed dense_cloud不应该单独显示
+        if transformed_dense_name in self.visualizer.geometries:
+            self.visualizer.hide_geometry(transformed_dense_name)
         
         # 更新视图
         self.visualizer.update_view()
@@ -1680,123 +1491,6 @@ class PointCloudGUI:
                     text=coord_text,
                     foreground="blue"
                 )
-    
-    def toggle_point_cloud_visibility(self, cloud_type: str):
-        """
-        切换指定类型点云的显示/隐藏状态（包括原始点云和变换点云）
-        
-        Args:
-            cloud_type: 点云类型 ('ground', 'plane', 'dense_cloud')
-        """
-        if self.visualizer.vis is None:
-            messagebox.showinfo("提示", "请先打开可视化窗口")
-            return
-        
-        # 切换原始点云的显示状态
-        is_visible = self.visualizer.toggle_point_cloud_type(cloud_type)
-        
-        # 同时切换对应的变换点云
-        self._toggle_transformed_clouds(cloud_type, is_visible)
-        
-        # 更新按钮文本
-        self.update_visibility_button(cloud_type, is_visible)
-        
-        # 更新视图
-        self.visualizer.update_view()
-    
-    def _toggle_transformed_clouds(self, cloud_type: str, is_visible: bool):
-        """
-        切换对应类型变换点云的显示/隐藏状态
-        
-        Args:
-            cloud_type: 点云类型 ('ground', 'plane', 'dense_cloud')
-            is_visible: 是否可见（True表示显示，False表示隐藏）
-        """
-        if self.visualizer.vis is None:
-            return
-        
-        # 获取当前帧ID
-        if not self.available_frames or self.current_frame_index >= len(self.available_frames):
-            return
-        
-        frame_id = self.available_frames[self.current_frame_index]
-        transform_name = 'T_opt_w_b'
-        
-        # 构建变换点云名称前缀
-        prefix = f"transformed_cloud_{frame_id}_{transform_name}_"
-        
-        # 查找所有匹配的变换点云（包括可见和隐藏的）
-        transformed_names = []
-        
-        # 从可见的几何体中查找
-        for name in list(self.visualizer.geometries.keys()):
-            if name.startswith(prefix):
-                # 提取文件名部分（例如：dense_cloud, ground_0, plane_1）
-                file_stem = name[len(prefix):]
-                
-                # 检查是否匹配cloud_type
-                if cloud_type == 'dense_cloud':
-                    if file_stem == 'dense_cloud':
-                        transformed_names.append(name)
-                else:
-                    # ground或plane类型
-                    if file_stem.startswith(cloud_type + '_'):
-                        transformed_names.append(name)
-        
-        # 从隐藏的几何体中查找
-        for name in list(self.visualizer.hidden_geometries.keys()):
-            if name.startswith(prefix):
-                # 提取文件名部分
-                file_stem = name[len(prefix):]
-                
-                # 检查是否匹配cloud_type
-                if cloud_type == 'dense_cloud':
-                    if file_stem == 'dense_cloud':
-                        transformed_names.append(name)
-                else:
-                    # ground或plane类型
-                    if file_stem.startswith(cloud_type + '_'):
-                        transformed_names.append(name)
-        
-        # 切换变换点云的显示/隐藏状态
-        for name in transformed_names:
-            if is_visible:
-                # 如果原始点云可见，显示变换点云
-                if name in self.visualizer.hidden_geometries:
-                    self.visualizer.show_geometry(name)
-            else:
-                # 如果原始点云隐藏，隐藏变换点云
-                if name in self.visualizer.geometries:
-                    self.visualizer.hide_geometry(name)
-    
-    def update_visibility_button(self, cloud_type: str, is_visible: bool):
-        """更新指定类型点云的按钮文本"""
-        button_text_map = {
-            'ground': ('显示Ground点云', '隐藏Ground点云'),
-            'plane': ('显示Plane点云', '隐藏Plane点云'),
-            'dense_cloud': ('显示Dense Cloud点云', '隐藏Dense Cloud点云')
-        }
-        
-        if cloud_type in button_text_map:
-            show_text, hide_text = button_text_map[cloud_type]
-            button = {
-                'ground': self.ground_button,
-                'plane': self.plane_button,
-                'dense_cloud': self.dense_cloud_button
-            }.get(cloud_type)
-            
-            if button:
-                button.config(text=show_text if is_visible else hide_text)
-    
-    def update_visibility_buttons(self):
-        """更新所有可见性按钮的状态"""
-        if self.visualizer.vis is None:
-            return
-        
-        # 检查每种类型的可见性并更新按钮
-        for cloud_type in ['ground', 'plane', 'dense_cloud']:
-            is_visible = self.visualizer.is_point_cloud_type_visible(cloud_type)
-            self.update_visibility_button(cloud_type, is_visible)
     
     def _on_spinbox_wheel(self, event, var: tk.DoubleVar, increment: float):
         """

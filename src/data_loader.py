@@ -456,34 +456,8 @@ class DataLoader:
         transform_dict = debug_info[transform_name]
         return self.transform_to_matrix(transform_dict)
     
-    def get_ply_info_by_id(self, file_id: Any) -> Optional[Dict[str, Any]]:
-        """
-        通过id获取ply文件信息
-        
-        Args:
-            file_id: 文件id（int或str），例如 0, 1, 'dense_cloud'
-            
-        Returns:
-            文件信息字典，包含以下键：
-            - 'file_path': 文件路径
-            - 'point_cloud': 点云对象
-            - 'metadata': 元数据
-            - 'name': 文件名（不含扩展名）
-            - 'type': 文件类型（'ground', 'plane', 'dense_cloud'）
-            - 'frame_id': 帧ID
-            - 'frame_type': 帧类型
-            如果id不存在则返回None
-        """
-        return self.ply_file_map.get(file_id)
-    
-    def get_all_ply_ids(self) -> List[Any]:
-        """
-        获取所有已加载的ply文件id列表
-        
-        Returns:
-            id列表
-        """
-        return list(self.ply_file_map.keys())
+
+
     
     def clear_ply_file_map(self):
         """
